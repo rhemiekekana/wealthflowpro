@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WealthFlow Pro - Payday Cycle Tracker</title>
+  
+  <!-- Tailwind CSS Engine for Dashboard Aesthetics -->
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  
+  <!-- React, ReactDOM & Babel In-Browser Compilers (Fixes the White Screen) -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 font-sans antialiased selection:bg-indigo-500 selection:text-white">
+
+  <div id="root"></div>
+
+  <!-- Lucide Icon Library Configuration Layer -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Notice the type="text/babel" - this tells the browser to compile the React code safely -->
+  <script type="text/babel">
+    // Mocking Lucide icons to operate natively inside a standalone browser frame
+    const { 
+      Wallet, Cloud, RefreshCw, CalendarDays, Download, Upload, Calendar, AlertTriangle, Layers, TrendingDown, X, Trash2
+    } = {
+      Wallet: () => <span role="img" aria-label="wallet">💼</span>,
+      Cloud: () => <span role="img" aria-label="cloud">☁️</span>,
+      RefreshCw: ({className}) => <span className={className} role="img" aria-label="refresh">🔄</span>,
+      CalendarDays: () => <span role="img" aria-label="calendar-days">🗓️</span>,
+      Download: () => <span role="img" aria-label="download">📥</span>,
+      Upload: () => <span role="img" aria-label="upload">📤</span>,
+      Calendar: () => <span role="img" aria-label="calendar">📆</span>,
+      AlertTriangle: ({className}) => <span className={className} role="img" aria-label="alert">⚠️</span>,
+      Layers: () => <span role="img" aria-label="layers">📊</span>,
+      TrendingDown: () => <span role="img" aria-label="trending-down">📉</span>,
+      X: () => <span role="img" aria-label="close">❌</span>,
+      Trash2: () => <span role="img" aria-label="trash">🗑️</span>
+    };
+
+    // YOUR CUSTOM CATEGORIES INDEX
+    const INITIAL_CATEGORIES = [
+      { id: '1', name: 'Housing', budgeted: 4347, color: 'bg-blue-500', icon: '🏠' },
+      { id: '2', name: 'Groceries', budgeted: 2000, color: 'bg-emerald-500', icon: '🛒' },
+      { id: '3', name: 'Loans & Credit Cards', budgeted: 4643, color: 'bg-amber-500', icon: '💳' },
+      { id: '4', name: 'Utilities', budgeted: 500, color: 'bg-indigo-500', icon: '⚡' },
+      { id: '5', name: 'Entertainment', budgeted: 300, color: 'bg-purple-500', icon: '🎬' },
+      { id: '6', name: 'Transportation', budgeted: 500, color: 'bg-rose-500', icon: '🚗' },
+      { id: '7', name: 'Personal & Subscriptions', budgeted: 264, color: 'bg-green-500', icon: '📱' },
+      { id: '8', name: 'Savings & Investments', budgeted: 500, color: 'bg-teal-500', icon: '💵' },
+      { id: '9', name: 'Miscellaneous', budgeted: 500, color: 'bg-slate-500', icon: '🧾' },
+      { id: '10', name: 'Healthcare', budgeted: 800, color: 'bg-red-500', icon: '💊' },
+      { id: '11', name: 'Education & Self-Development', budgeted: 0, color: 'bg-yellow-500', icon: '📚' },
+      { id: '12', name: 'Phone & Internet', budgeted: 1700, color: 'bg-pink-500', icon: '🌐' },
+    ];
+
+    // YOUR CLEAN TRANSACTION LEDGER
+    const INITIAL_EXPENSES = [];
+
+    const EXCHANGE_RATES = { ZAR: 1.0, USD: 0.054, EUR: 0.050, GBP: 0.043 };
+
+    function generateSyncKey() {
+      const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+      let key = 'cycle-';
+      for (let i = 0; i < 8; i++) key += chars.charAt(Math.floor(Math.random() * chars.length));
+      return key;
+    }
+
+    function getDaysUntilPayday(targetDateStr) {
+      const today = new Date();
+      today.setHours(0,0,0,0);
+      const target = new Date(targetDateStr);
+      target.setHours(0,0,0,0);
+      const diffTime = target.getTime() - today.getTime();
+      return Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+    }
+
+    function getNearest25th() {
+      const d = new Date();
+      if (d.getDate() > 25) d.setMonth(d.getMonth() + 1);
+      d.setDate(25);
+      return d.toISOString().split('T')[0];
+    }
+
+    function App() {
+      const [categories, setCategories] = React.useState(() => {
+        const s = localStorage.getItem('wf_p_categories'); return s ? JSON.parse(s) : INITIAL_CATEGORIES;
+      });
+      const [expenses, setExpenses] = React.useState(() => {
+        const s = localStorage.getItem('wf_p_expenses'); return s ? JSON.parse(s) : INITIAL_EXPENSES;
+      });
+      
+      const [monthlyIncome, setMonthlyIncome] = React.useState(() => Number(localStorage.getItem('wf_p_income')) || 25000);
+      const [paydayDate, setPaydayDate] = React.useState(() => localStorage.getItem('wf_p_target_date') || getNearest25th());
+      const [filterCategory, setFilterCategory] = React.useState('all');
+      const [baseCurrency, setBaseCurrency] = React.useState('ZAR');
+      const [syncKey, setSyncKey] = React.useState(() => localStorage.getItem('wf_p_key') || generateSyncKey());
+      const [showSyncSettings, setShowSyncSettings] = React.useState(false);
+      const [inputSyncKey, setInputSyncKey] = React.useState('');
+      const [copied, setCopied] = React.useState(false);
+
+      // Inline budget editing states
+      const [editingId, setEditingId] = React.useState(null);
+      const [editBudgetVal, setEditBudgetVal] = React.useState('');
+
+      const [showAddExpense, setShowAddExpense] = React.useState(false);
+      const [showAddCategory, setShowAddCategory] = React.useState(false);
+      
+      const [expAmount, setExpAmount] = React.useState('');
+      const [expCurrency, setExpCurrency] = React.useState('ZAR');
+      const [expCategory, setExpCategory] = React.useState('');
+      const [expDesc, setExpDesc] = React.useState('');
+      const [expDate, setExpDate] = React.useState(new Date().toISOString().split('T')[0]);
+
+      const [catName, setCatName] = React.useState('');
+      const [catBudget, setCatBudget] = React.useState('');
+      const [catColor, setCatColor] = React.useState('bg-blue-500');
+      const [catEmoji, setCatEmoji] = React.useState('🏠');
+
+      React.useEffect(() => { localStorage.setItem('wf_p_categories', JSON.stringify(categories)); }, [categories]);
+      React.useEffect(() => { localStorage.setItem('wf_p_expenses', JSON.stringify(expenses)); }, [expenses]);
+      React.useEffect(() => { localStorage.setItem('wf_p_income', monthlyIncome.toString()); }, [monthlyIncome]);
+      React.useEffect(() => { localStorage.setItem('wf_p_target_date', paydayDate); }, [paydayDate]);
+      React.useEffect(() => { localStorage.setItem('wf_p_key', syncKey); }, [syncKey]);
+
+      const analytics = React.useMemo(() => {
+        let totalBudgetedAllocations = categories.reduce((sum, c) => sum + Number(c.budgeted || 0), 0);
+        let totalSpentNormalized = expenses.reduce((sum, e) => {
+          const rateFrom = EXCHANGE_RATES[e.currency] || 1;
+          const rateTo = EXCHANGE_RATES[baseCurrency] || 1;
+          return sum + ((e.amount / rateFrom) * rateTo);
+        }, 0);
+
+        const netSavingsBuffer = monthlyIncome - totalSpentNormalized;
+        const unallocatedIncome = monthlyIncome - totalBudgetedAllocations;
+        const daysLeft = getDaysUntilPayday(paydayDate);
+        const dayOfMonth = new Date().getDate();
+        const averageDailyVelocity = dayOfMonth > 0 ? totalSpentNormalized / dayOfMonth : 0;
+        const projectedMonthEndOutflow = averageDailyVelocity * 30;
+        const burnRateAlert = projectedMonthEndOutflow > monthlyIncome;
+
+        const spendingMap = {};
+        categories.forEach(c => { spendingMap[c.id] = 0; });
+        expenses.forEach(e => {
+          if (spendingMap[e.categoryId] !== undefined) {
+            const rateFrom = EXCHANGE_RATES[e.currency] || 1;
+            const rateTo = EXCHANGE_RATES[baseCurrency] || 1;
+            spendingMap[e.categoryId] += (e.amount / rateFrom) * rateTo;
+          }
+        });
+
+        const categoriesComputed = categories.map(c => {
+          const spent = spendingMap[c.id] || 0;
+          return {
+            ...c,
+            spent,
+            percent: c.budgeted > 0 ? Math.min(Math.round((spent / c.budgeted) * 100), 200) : 0,
+            isOver: spent > c.budgeted
+          };
+        });
+
+        return {
+          totalBudgetedAllocations, totalSpentNormalized, netSavingsBuffer, unallocatedIncome,
+          daysLeft, averageDailyVelocity, projectedMonthEndOutflow, burnRateAlert, categoriesComputed
+        };
+      }, [categories, expenses, monthlyIncome, paydayDate, baseCurrency]);
+
+      const triggerCSVExport = () => {
+        let csvContent = "data:text/csv;charset=utf-8,ID,Description,Amount,Currency,Date\n";
+        expenses.forEach(e => { csvContent += `"${e.id}","${e.description.replace(/"/g, '""')}",${e.amount},${e.currency},${e.date}\n`; });
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri); link.setAttribute("download", `WealthFlow_Ledger.csv`);
+        document.body.appendChild(link); link.click(); document.body.removeChild(link);
+      };
+
+      const handleUpdateBudget = (catId, newBudget) => {
+        setCategories(prev => prev.map(c => c.id === catId ? { ...c, budgeted: parseFloat(newBudget) || 0 } : c));
+      };
+
+      const handleAddExpenseSubmit = (e) => {
+        e.preventDefault();
+        if (!expAmount || parseFloat(expAmount) <= 0 || !expDesc.trim()) return;
+        const newExp = {
+          id: 'e_' + Date.now(),
+          categoryId: expCategory || categories[0]?.id,
+          amount: parseFloat(expAmount), currency: expCurrency,
+          description: expDesc.trim(), date: expDate
+        };
+        setExpenses(prev => [newExp, ...prev]);
+        setExpAmount(''); setExpDesc(''); setShowAddExpense(false);
+      };
+
+      const handleAddCategorySubmit = (e) => {
+        e.preventDefault();
+        if (!catName.trim() || !catBudget) return;
+        const newCat = { id: 'c_' + Date.now(), name: catName.trim(), budgeted: parseFloat(catBudget), color: catColor, icon: catEmoji };
+        setCategories(prev => [...prev, newCat]);
+        setCatName(''); setCatBudget(''); setShowAddCategory(false);
+      };
+
+      return (
+        <div className="min-h-screen">
+          <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-40">
+            <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="bg-gradient-to-br from-indigo-600 to-purple-600 p-2 rounded-xl text-white shadow-md">
+                  <Wallet />
+                </div>
+                <div>
+                  <span className="font-bold text-lg bg-gradient-to-r from-indigo-400 to-emerald-400 bg-clip-text text-transparent">WealthFlow Pro</span>
+                  <span className="block text-[10px] text-slate-400 font-mono">Personal Finance Manager</span>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2.5">
+                <button onClick={() => { setShowAddCategory(true); setShowAddExpense(false); }} className="bg-slate-800 hover:bg-slate-700 text-xs px-3 py-2 rounded-lg border border-slate-700 transition">
+                  + Category
+                </button>
+                <button onClick={() => { setShowAddExpense(true); setShowAddCategory(false); }} className="bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold px-4 py-2 rounded-lg transition shadow-sm">
+                  Log Outflow
+                </button>
+              </div>
+            </div>
+          </header>
+
+          <main className="max-w-7xl mx-auto px-4 py-8 space-y-8">
+            <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              
+              {/* Left Column: Core Input parameters */}
+              <div className="bg-slate-800 p-5 rounded-2xl border border-slate-700/50 space-y-4">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                  <CalendarDays /> Cycle Tuning Variables
+                </h3>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Monthly Incoming Salary</label>
+                  <div className="relative rounded-lg shadow-sm">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><span className="text-slate-500 text-xs">R</span></div>
+                    <input type="number" value={monthlyIncome} onChange={e => setMonthlyIncome(Math.max(0, parseFloat(e.target.value) || 0))} className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-8 pr-3 py-2 text-sm text-slate-100 font-semibold focus:outline-none" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Pay Date Override</label>
+                  <input type="date" value={paydayDate} onChange={e => setPaydayDate(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 font-mono focus:outline-none" />
+                </div>
+                <div className="pt-3 border-t border-slate-700/50 flex justify-between items-center">
+                  <span className="text-xs text-slate-400">Display Currency:</span>
+                  <select value={baseCurrency} onChange={e => setBaseCurrency(e.target.value)} className="bg-slate-900 border border-slate-700 rounded p-1 text-xs text-slate-300 font-mono">
+                    {Object.keys(EXCHANGE_RATES).map(cur => <option key={cur} value={cur}>{cur}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* Middle/Right Column: Live Core Metrics comparing spend to limits */}
+              <div className="lg:col-span-2 bg-slate-800 p-6 rounded-2xl border border-slate-700/50 flex flex-col justify-between">
+                <div className="flex justify-between items-center border-b border-slate-700/40 pb-4">
+                  <div>
+                    <h4 className="text-base font-bold text-slate-200">Outflow Balance Versus Resources Summary</h4>
+                    <p className="text-xs text-slate-400">Aggregated comparison based on localized parameters</p>
+                  </div>
+                  <button onClick={triggerCSVExport} className="p-2 bg-slate-900 hover:bg-slate-700 rounded-xl border border-slate-700 text-slate-300 transition" title="Export CSV Ledger"><Download /></button>
+                </div>
+                
+                {/* Responsive Core Cards displaying planned limit vs actual cash */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 my-4">
+                  <div className="bg-slate-900/40 p-3 rounded-xl border border-slate-750">
+                    <span className="text-[10px] text-slate-400 uppercase tracking-wider font-bold block">1. True Inflow</span>
+                    <span className="text-base font-bold text-slate-200">R {monthlyIncome.toLocaleString()}</span>
+                  </div>
+                  
+                  {/* Dynamic Planned Expenses aggregate indicator (Feature request fulfilled) */}
+                  <div className="bg-slate-900/40 p-3 rounded-xl border border-slate-750">
+                    <span className="text-[10px] text-indigo-400 uppercase tracking-wider font-bold block">2. Total Budgeted</span>
+                    <span className="text-base font-bold text-indigo-300">R {analytics.totalBudgetedAllocations.toLocaleString()}</span>
+                    <span className="text-[9px] block text-slate-500 mt-0.5">
+                      {analytics.unallocatedIncome >= 0 
+                        ? `R ${analytics.unallocatedIncome.toFixed(0)} leftover` 
+                        : `Over-allocated by R ${Math.abs(analytics.unallocatedIncome).toFixed(0)}`
+                      }
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-900/40 p-3 rounded-xl border border-slate-750">
+                    <span className="text-[10px] text-rose-400 uppercase tracking-wider font-bold block">3. Outflows logged</span>
+                    <span className="text-base font-bold text-rose-400">-R {analytics.totalSpentNormalized.toFixed(2)}</span>
+                  </div>
+
+                  <div className="bg-slate-900/40 p-3 rounded-xl border border-slate-750">
+                    <span className="text-[10px] text-emerald-400 uppercase tracking-wider font-bold block">4. Net Buffer</span>
+                    <span className={`text-base font-bold ${analytics.netSavingsBuffer >= 0 ? 'text-emerald-400' : 'text-rose-500'}`}>
+                      R {analytics.netSavingsBuffer.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="bg-slate-900/80 p-3.5 rounded-xl border border-indigo-500/10 flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div className="bg-indigo-600/10 text-indigo-400 p-2 rounded-lg"><Calendar /></div>
+                    <span className="text-sm font-semibold text-slate-200">{analytics.daysLeft} Days remaining until Payday cycle closure</span>
+                  </div>
+                  <span className="text-xs font-mono font-bold bg-slate-800 text-slate-400 px-2 py-1 rounded border border-slate-700">{paydayDate}</span>
+                </div>
+              </div>
+            </section>
+
+            {analytics.burnRateAlert && (
+              <div className="bg-rose-500/10 border border-rose-500/20 p-4 rounded-2xl flex items-center space-x-3 text-rose-400 text-xs">
+                <AlertTriangle className="text-rose-500" />
+                <div><span className="font-bold block uppercase tracking-wider">Velocity Exception Warning Threshold Reached</span><span>Your velocity of <strong>R {analytics.averageDailyVelocity.toFixed(2)} / day</strong> projects spending over your limits!</span></div>
+              </div>
+            )}
+
+            {showAddCategory && (
+              <form onSubmit={handleAddCategorySubmit} className="bg-slate-800 p-5 rounded-2xl border border-indigo-500/30 grid grid-cols-1 md:grid-cols-4 gap-4 items-end animate-fadeIn">
+                <div><label className="block text-xs text-slate-400 mb-1">Category Title</label><input type="text" required value={catName} onChange={e => setCatName(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm text-slate-100" /></div>
+                <div><label className="block text-xs text-slate-400 mb-1">Target Allowance (R)</label><input type="number" required value={catBudget} onChange={e => setCatBudget(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm text-slate-100" /></div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Theme</label>
+                  <div className="flex gap-2">
+                    <select value={catEmoji} onChange={e => setCatEmoji(e.target.value)} className="bg-slate-900 border border-slate-700 rounded-lg p-1.5 text-slate-100">{['🏠','🛒','🍔','⚡','🎬','🚗','📱','💵','⚙️','💳'].map(e => <option key={e} value={e}>{e}</option>)}</select>
+                    <div className="flex items-center bg-slate-900 px-2 rounded-lg border border-slate-700 flex-1 justify-around">{['bg-blue-500', 'bg-emerald-500', 'bg-purple-500', 'bg-rose-500'].map(c => (
+                      <button key={c} type="button" onClick={() => setCatColor(c)} className={`w-3 h-3 rounded-full ${c} ${catColor === c ? 'ring-2 ring-white' : 'opacity-40'}`} />
+                    ))}</div>
+                  </div>
+                </div>
+                <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2 rounded-lg text-sm transition">Generate Allocation</button>
+              </form>
+            )}
+
+            {showAddExpense && (
+              <form onSubmit={handleAddExpenseSubmit} className="bg-slate-800 p-5 rounded-2xl border border-emerald-500/30 space-y-4 animate-fadeIn">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Transaction Value</label>
+                    <div className="flex gap-1">
+                      <select value={expCurrency} onChange={e => setExpCurrency(e.target.value)} className="bg-slate-900 border border-slate-700 rounded-lg px-2 text-xs text-slate-300 font-mono">{Object.keys(EXCHANGE_RATES).map(cur => <option key={cur} value={cur}>{cur}</option>)}</select>
+                      <input type="number" required step="any" value={expAmount} onChange={e => setExpAmount(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm text-slate-100 flex-1" placeholder="0.00" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Target Channel</label>
+                    <select value={expCategory} onChange={e => setExpCategory(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm text-slate-100">{categories.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}</select>
+                  </div>
+                  <div><label className="block text-xs text-slate-400 mb-1">Memo Ledger Note</label><input type="text" required value={expDesc} onChange={e => setExpDesc(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm text-slate-100" placeholder="Transaction memo..." /></div>
+                  <div><label className="block text-xs text-slate-400 mb-1">Execution Date</label><input type="date" value={expDate} onChange={e => setExpDate(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm text-slate-100 font-mono" /></div>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button type="button" onClick={() => setShowAddExpense(false)} className="text-slate-400 text-xs px-4 py-2 hover:text-white">Cancel</button>
+                  <button type="submit" className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs px-6 py-2 rounded-lg transition shadow-md">Commit Outflow</button>
+                </div>
+              </form>
+            )}
+
+            <section className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              
+              {/* Category Dashboard view containing inline adjustments */}
+              <div className="lg:col-span-2 bg-slate-800 p-6 rounded-2xl border border-slate-700/60 space-y-6">
+                <h3 className="text-base font-bold text-slate-200 flex items-center gap-2"><Layers /> Core Allocation Targets</h3>
+                <div className="space-y-4">
+                  {analytics.categoriesComputed.map(cat => (
+                    <div key={cat.id} className="p-4 bg-slate-900/40 rounded-xl border border-slate-750 relative group">
+                      <button onClick={() => { setCategories(prev => prev.filter(c => c.id !== cat.id)); setExpenses(prev => prev.filter(e => e.categoryId !== cat.id)); }} className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 text-slate-500 hover:text-rose-400 p-1 bg-slate-800 rounded border border-slate-700 transition"><Trash2 /></button>
+                      
+                      <div className="flex justify-between items-center mb-2">
+                        <div className="flex items-center space-x-2.5">
+                          <span className="text-xl bg-slate-800 p-1 rounded border border-slate-700">{cat.icon}</span>
+                          <div>
+                            <h5 className="font-semibold text-sm text-slate-200">{cat.name}</h5>
+                            
+                            {/* Inline adjustment editor toggle (Feature request fulfilled) */}
+                            {editingId === cat.id ? (
+                              <div className="flex items-center space-x-1.5 mt-1">
+                                <input 
+                                  type="number" 
+                                  value={editBudgetVal}
+                                  onChange={e => setEditBudgetVal(e.target.value)}
+                                  className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-0.5 text-xs text-slate-100 font-semibold font-mono"
+                                  autoFocus
+                                />
+                                <button 
+                                  type="button"
+                                  onClick={() => {
+                                    handleUpdateBudget(cat.id, editBudgetVal);
+                                    setEditingId(null);
+                                  }}
+                                  className="bg-emerald-600 hover:bg-emerald-500 text-[10px] px-1.5 py-0.5 rounded font-bold"
+                                  title="Confirm budget adjustment"
+                                >
+                                  ✓
+                                </button>
+                                <button 
+                                  type="button"
+                                  onClick={() => setEditingId(null)}
+                                  className="bg-slate-800 hover:bg-slate-700 text-[10px] px-1.5 py-0.5 rounded text-slate-400 font-bold"
+                                  title="Discard adjustments"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center space-x-2 mt-0.5">
+                                <span className="text-[11px] text-slate-400 font-medium">Budget: R {cat.budgeted}</span>
+                                <button 
+                                  onClick={() => {
+                                    setEditingId(cat.id);
+                                    setEditBudgetVal(cat.budgeted);
+                                  }}
+                                  className="text-[10px] text-indigo-400 hover:text-indigo-300 font-bold px-1 rounded hover:bg-slate-800/80 transition"
+                                  title="Adjust budget allocation"
+                                >
+                                  Adjust ✏️
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="text-right">
+                          <span className="text-sm font-bold block text-slate-100">R {cat.spent.toFixed(2)} spent</span>
+                          <span className="text-[10px] text-slate-500 uppercase font-semibold">
+                            {cat.percent}% utilized
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                        <div className={`h-full rounded-full ${cat.isOver ? 'bg-rose-500' : cat.color}`} style={{ width: `${cat.percent}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Transaction Stream Registry */}
+              <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700/60 flex flex-col justify-between">
+                <div>
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-base font-bold text-slate-200 flex items-center gap-2"><TrendingDown /> Registry Ledger</h3>
+                    <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} className="bg-slate-900 border border-slate-700 text-[11px] rounded p-1 text-slate-300">
+                      <option value="all">Full Stream</option>
+                      {categories.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
+                    {expenses.filter(e => filterCategory === 'all' || e.categoryId === filterCategory).map(exp => (
+                      <div key={exp.id} className="flex justify-between items-center p-2.5 bg-slate-900/50 rounded-xl border border-slate-800 text-xs">
+                        <div className="min-w-0">
+                          <span className="font-semibold text-slate-200 block truncate">{exp.description}</span>
+                          <span className="text-[10px] text-slate-500 font-mono block mt-0.5">{exp.date} • original: {exp.amount} {exp.currency}</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <span className="font-bold text-slate-200">-R {((exp.amount / (EXCHANGE_RATES[exp.currency] || 1)) * (EXCHANGE_RATES[baseCurrency] || 1)).toFixed(2)}</span>
+                          <button onClick={() => setExpenses(prev => prev.filter(e => e.id !== exp.id))} className="text-slate-600 hover:text-rose-400"><X /></button>
+                        </div>
+                      </div>
+                    ))}
+                    {expenses.length === 0 && (
+                      <div className="text-center py-12 text-slate-500">
+                        <p className="text-sm font-semibold">No outflows recorded.</p>
+                        <p className="text-[11px] mt-1 text-slate-600">Click "Log Outflow" above to register purchases.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <span className="text-[10px] text-slate-500 text-center block pt-4 border-t border-slate-750">Wealthflow Pro V1.0.0<br />
+                    Copyright © 2026 Rhemie Kekana. All rights reserved.</span>
+              </div>
+            </section>
+          </main>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
