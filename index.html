@@ -5,16 +5,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>WealthFlow Pro - Payday Cycle Tracker</title>
   
+  <!-- Tailwind CSS Engine for Dashboard Aesthetics -->
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   
+  <!-- React, ReactDOM & Babel In-Browser Compilers -->
   <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Firebase Compatibility SDKs for Real-Time Synchronization -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 </head>
 <body class="bg-slate-900 text-slate-100 font-sans antialiased selection:bg-indigo-500 selection:text-white">
 
   <div id="root"></div>
 
+  <!-- Lucide Icon Library Configuration Layer -->
   <script src="https://unpkg.com/lucide@latest"></script>
 
   <script type="text/babel">
@@ -22,8 +30,8 @@
     const { 
       Wallet, Cloud, RefreshCw, CalendarDays, Download, Upload, Calendar, AlertTriangle, Layers, TrendingDown, X, Trash2, Copy, Check
     } = {
-      Wallet: () => <span role="img" aria-label="wallet">💼</span>,
-      Cloud: () => <span role="img" aria-label="cloud">☁️</span>,
+      Wallet: () => <span role="img" aria-label="wallet" className="text-xl">💼</span>,
+      Cloud: () => <span role="img" aria-label="cloud" className="text-lg">☁️</span>,
       RefreshCw: ({className}) => <span className={className} role="img" aria-label="refresh">🔄</span>,
       CalendarDays: () => <span role="img" aria-label="calendar-days">🗓️</span>,
       Download: () => <span role="img" aria-label="download">📥</span>,
@@ -38,7 +46,7 @@
       Check: () => <span role="img" aria-label="check">✅</span>
     };
 
-    // CUSTOM CATEGORIES INDEX
+    // YOUR CUSTOM CATEGORIES INDEX
     const INITIAL_CATEGORIES = [
       { id: '1', name: 'Housing', budgeted: 4347, color: 'bg-blue-500', icon: '🏠' },
       { id: '2', name: 'Groceries', budgeted: 2000, color: 'bg-emerald-500', icon: '🛒' },
@@ -56,6 +64,25 @@
 
     const INITIAL_EXPENSES = [];
     const EXCHANGE_RATES = { ZAR: 1.0, USD: 0.054, EUR: 0.050, GBP: 0.043 };
+
+    // Initialize Firebase dynamically from the global environment configuration
+    let db = null;
+    let auth = null;
+    let appId = 'wealthflow-payday-app';
+
+    try {
+      if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const appInstance = firebase.initializeApp(firebaseConfig);
+        auth = firebase.auth();
+        db = firebase.firestore();
+      }
+      if (typeof __app_id !== 'undefined') {
+        appId = __app_id;
+      }
+    } catch (error) {
+      console.warn("Real-time cloud architecture connection skipped. Falling back to local offline sandbox.", error);
+    }
 
     function generateSyncKey() {
       const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
@@ -97,6 +124,12 @@
       const [showSyncSettings, setShowSyncSettings] = React.useState(false);
       const [inputSyncKey, setInputSyncKey] = React.useState('');
       const [copied, setCopied] = React.useState(false);
+      const [notification, setNotification] = React.useState({ show: false, message: '', type: 'info' });
+
+      // Firebase Sync States
+      const [user, setUser] = React.useState(null);
+      const [syncStatus, setSyncStatus] = React.useState('offline');
+      const isLocalChange = React.useRef(false);
 
       // Inline budget editing states
       const [editingId, setEditingId] = React.useState(null);
@@ -116,11 +149,103 @@
       const [catColor, setCatColor] = React.useState('bg-blue-500');
       const [catEmoji, setCatEmoji] = React.useState('🏠');
 
+      // Sync Memory to LocalStorage (Fallback)
       React.useEffect(() => { localStorage.setItem('wf_p_categories', JSON.stringify(categories)); }, [categories]);
       React.useEffect(() => { localStorage.setItem('wf_p_expenses', JSON.stringify(expenses)); }, [expenses]);
       React.useEffect(() => { localStorage.setItem('wf_p_income', monthlyIncome.toString()); }, [monthlyIncome]);
       React.useEffect(() => { localStorage.setItem('wf_p_target_date', paydayDate); }, [paydayDate]);
       React.useEffect(() => { localStorage.setItem('wf_p_key', syncKey); }, [syncKey]);
+
+      // Step 1: Initialize Firebase Authentication (Rule 3 Guardrail)
+      React.useEffect(() => {
+        if (!auth) return;
+        setSyncStatus('connecting');
+        const handleAuthInit = async () => {
+          try {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+              await auth.signInWithCustomToken(__initial_auth_token);
+            } else {
+              await auth.signInAnonymously();
+            }
+          } catch (error) {
+            console.error("Firebase auth exception:", error);
+            setSyncStatus('error');
+          }
+        };
+        handleAuthInit();
+
+        return auth.onAuthStateChanged((authenticatedUser) => {
+          if (authenticatedUser) {
+            setUser(authenticatedUser);
+            setSyncStatus('synced');
+          } else {
+            setUser(null);
+            setSyncStatus('offline');
+          }
+        });
+      }, []);
+
+      // Step 2: Establish Real-Time Listener (onSnapshot) to instantly pull other device changes
+      React.useEffect(() => {
+        if (!db || !user || !syncKey) return;
+
+        // Structured relative path conforming strictly to RULE 1
+        const docRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('user_budgets').doc(syncKey);
+
+        const unsubscribe = docRef.onSnapshot((docSnap) => {
+          if (docSnap.exists) {
+            const data = docSnap.data();
+            
+            // Block the local change handler from pushing back received modifications
+            isLocalChange.current = false;
+
+            if (data.categories) setCategories(data.categories);
+            if (data.expenses) setExpenses(data.expenses);
+            if (data.monthlyIncome !== undefined) setMonthlyIncome(data.monthlyIncome);
+            if (data.paydayDate) setPaydayDate(data.paydayDate);
+
+            showToast("Database Synced Instantly", "success");
+          }
+        }, (error) => {
+          console.error("Real-time listener failed:", error);
+          setSyncStatus('error');
+        });
+
+        return () => unsubscribe();
+      }, [user, syncKey]);
+
+      // Step 3: Trigger real-time writes on local edits
+      React.useEffect(() => {
+        if (!db || !user || !syncKey) return;
+
+        if (isLocalChange.current) {
+          isLocalChange.current = false;
+          setSyncStatus('saving');
+
+          const docRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('user_budgets').doc(syncKey);
+          
+          docRef.set({
+            categories,
+            expenses,
+            monthlyIncome,
+            paydayDate,
+            lastModified: new Date().toISOString()
+          }, { merge: true })
+          .then(() => {
+            setSyncStatus('synced');
+          })
+          .catch((error) => {
+            console.error("Real-time write failed:", error);
+            setSyncStatus('error');
+          });
+        }
+      }, [categories, expenses, monthlyIncome, paydayDate]);
+
+      // Helper for clean, non-obstructive toast alerts
+      const showToast = (message, type = 'info') => {
+        setNotification({ show: true, message, type });
+        setTimeout(() => setNotification({ show: false, message: '', type: 'info' }), 4000);
+      };
 
       const analytics = React.useMemo(() => {
         let totalBudgetedAllocations = categories.reduce((sum, c) => sum + Number(c.budgeted || 0), 0);
@@ -174,30 +299,44 @@
       };
 
       const copyToClipboard = () => {
-        navigator.clipboard.writeText(syncKey);
+        const el = document.createElement('textarea');
+        el.value = syncKey;
+        el.setAttribute('readonly', '');
+        el.style.position = 'absolute';
+        el.style.left = '-9999px';
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand('copy');
+        document.body.removeChild(el);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
       };
 
       const handleConnectKey = (e) => {
         e.preventDefault();
-        if (inputSyncKey.trim().startsWith('flow-')) {
-          setSyncKey(inputSyncKey.trim());
-          alert('Sync key successfully updated! In a fully hosted architecture, data would now stream from Firestore.');
+        const cleanedKey = inputSyncKey.trim().toLowerCase();
+        if (cleanedKey.startsWith('flow-')) {
+          isLocalChange.current = false;
+          setSyncKey(cleanedKey);
+          showToast(`Successfully connected to key: ${cleanedKey}`, 'success');
           setShowSyncSettings(false);
           setInputSyncKey('');
         } else {
-          alert('Invalid key format. Ensure it follows the layout: flow-xxxxxxxx');
+          showToast('Invalid key format. Key should follow pattern: flow-xxxxxxxx', 'error');
         }
       };
 
       const handleUpdateBudget = (catId, newBudget) => {
+        isLocalChange.current = true;
         setCategories(prev => prev.map(c => c.id === catId ? { ...c, budgeted: parseFloat(newBudget) || 0 } : c));
+        showToast("Budget updated successfully", "success");
       };
 
       const handleAddExpenseSubmit = (e) => {
         e.preventDefault();
         if (!expAmount || parseFloat(expAmount) <= 0 || !expDesc.trim()) return;
+        
+        isLocalChange.current = true;
         const newExp = {
           id: 'e_' + Date.now(),
           categoryId: expCategory || categories[0]?.id,
@@ -206,18 +345,47 @@
         };
         setExpenses(prev => [newExp, ...prev]);
         setExpAmount(''); setExpDesc(''); setShowAddExpense(false);
+        showToast("Expense logged successfully", "success");
       };
 
       const handleAddCategorySubmit = (e) => {
         e.preventDefault();
         if (!catName.trim() || !catBudget) return;
+        
+        isLocalChange.current = true;
         const newCat = { id: 'c_' + Date.now(), name: catName.trim(), budgeted: parseFloat(catBudget), color: catColor, icon: catEmoji };
         setCategories(prev => [...prev, newCat]);
         setCatName(''); setCatBudget(''); setShowAddCategory(false);
+        showToast("Category added successfully", "success");
+      };
+
+      const handleDeleteCategory = (catId) => {
+        isLocalChange.current = true;
+        setCategories(prev => prev.filter(c => c.id !== catId));
+        setExpenses(prev => prev.filter(e => e.categoryId !== catId));
+        showToast("Category removed", "info");
+      };
+
+      const handleDeleteExpense = (expId) => {
+        isLocalChange.current = true;
+        setExpenses(prev => prev.filter(e => e.id !== expId));
+        showToast("Expense transaction removed", "info");
       };
 
       return (
         <div className="min-h-screen">
+          {/* Dynamic Alert Banner */}
+          {notification.show && (
+            <div className={`fixed top-4 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3.5 rounded-xl shadow-xl border font-semibold text-xs transition duration-300 flex items-center gap-2 ${
+              notification.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' :
+              notification.type === 'error' ? 'bg-rose-500/10 border-rose-500/30 text-rose-400' :
+              'bg-indigo-500/10 border-indigo-500/30 text-indigo-400'
+            }`}>
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>{notification.message}</span>
+            </div>
+          )}
+
           <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-40">
             <div className="max-w-7xl mx-auto px-4 h-40 sm:h-20 flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:py-0">
               <div className="flex items-center space-x-3">
@@ -226,11 +394,12 @@
                 </div>
                 <div>
                   <span className="font-bold text-lg bg-gradient-to-r from-indigo-400 to-emerald-400 bg-clip-text text-transparent">WealthFlow Pro</span>
-                  <span className="block text-[10px] text-slate-400 font-mono">Personal Wealth Tracker</span>
+                  <span className="block text-[10px] text-slate-400 font-mono">
+                    Status: <span className={`font-semibold capitalize ${syncStatus === 'synced' ? 'text-emerald-400 animate-pulse' : 'text-amber-400'}`}>{syncStatus}</span>
+                  </span>
                 </div>
               </div>
               
-              {/* RESTORED CONTROL PANEL LAYOUT */}
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
                 <button 
                   onClick={() => setShowSyncSettings(!showSyncSettings)} 
@@ -241,13 +410,13 @@
                   <span className="hidden sm:inline text-slate-400">KEY:</span>
                   <span className="text-indigo-400 font-bold">{syncKey}</span>
                 </button>
-                <div className="grid grid-cols-2 gap-2">
+                 <div className="grid grid-cols-2 gap-2">
                   <button onClick={() => { setShowAddCategory(true); setShowAddExpense(false); }} className="w-full bg-slate-800 hover:bg-slate-700 text-xs px-3 py-2 rounded-lg border border-slate-700 transition">
-                    + Category
-                  </button>
+                  + Category
+                </button>
                   <button onClick={() => { setShowAddExpense(true); setShowAddCategory(false); }} className="w-full bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold px-4 py-2 rounded-lg transition shadow-sm">
-                    Log Outflow
-                  </button>
+                  Log Outflow
+                </button>
                 </div>
               </div>
             </div>
@@ -255,7 +424,6 @@
 
           <main className="max-w-7xl mx-auto px-4 py-8 space-y-8">
             
-            {/* RESTORED SYNC DRAWER INTERFACE */}
             {showSyncSettings && (
               <div className="bg-slate-800 border border-indigo-500/30 p-5 rounded-2xl space-y-4 animate-fadeIn">
                 <div className="flex justify-between items-center border-b border-slate-700/60 pb-2">
@@ -304,12 +472,28 @@
                   <label className="block text-xs text-slate-400 mb-1">Monthly Incoming Salary</label>
                   <div className="relative rounded-lg shadow-sm">
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><span className="text-slate-500 text-xs">R</span></div>
-                    <input type="number" value={monthlyIncome} onChange={e => setMonthlyIncome(Math.max(0, parseFloat(e.target.value) || 0))} className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-8 pr-3 py-2 text-sm text-slate-100 font-semibold focus:outline-none" />
+                    <input 
+                      type="number" 
+                      value={monthlyIncome} 
+                      onChange={e => {
+                        isLocalChange.current = true;
+                        setMonthlyIncome(Math.max(0, parseFloat(e.target.value) || 0));
+                      }} 
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-8 pr-3 py-2 text-sm text-slate-100 font-semibold focus:outline-none" 
+                    />
                   </div>
                 </div>
                 <div>
                   <label className="block text-xs text-slate-400 mb-1">Pay Date Override</label>
-                  <input type="date" value={paydayDate} onChange={e => setPaydayDate(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 font-mono focus:outline-none" />
+                  <input 
+                    type="date" 
+                    value={paydayDate} 
+                    onChange={e => {
+                      isLocalChange.current = true;
+                      setPaydayDate(e.target.value);
+                    }} 
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 font-mono focus:outline-none" 
+                  />
                 </div>
                 <div className="pt-3 border-t border-slate-700/50 flex justify-between items-center">
                   <span className="text-xs text-slate-400">Display Currency:</span>
@@ -370,7 +554,7 @@
 
             {analytics.burnRateAlert && (
               <div className="bg-rose-500/10 border border-rose-500/20 p-4 rounded-2xl flex items-center space-x-3 text-rose-400 text-xs">
-                <AlertTriangle className="text-rose-500" />
+                <AlertTriangle className="text-rose-500 shrink-0" />
                 <div><span className="font-bold block uppercase tracking-wider">Velocity Exception Warning Threshold Reached</span><span>Your velocity of <strong>R {analytics.averageDailyVelocity.toFixed(2)} / day</strong> projects spending over your limits!</span></div>
               </div>
             )}
@@ -422,7 +606,7 @@
                 <div className="space-y-4">
                   {analytics.categoriesComputed.map(cat => (
                     <div key={cat.id} className="p-4 bg-slate-900/40 rounded-xl border border-slate-750 relative group">
-                      <button onClick={() => { setCategories(prev => prev.filter(c => c.id !== cat.id)); setExpenses(prev => prev.filter(e => e.categoryId !== cat.id)); }} className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 text-slate-500 hover:text-rose-400 p-1 bg-slate-800 rounded border border-slate-700 transition"><Trash2 /></button>
+                      <button onClick={() => handleDeleteCategory(cat.id)} className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 text-slate-500 hover:text-rose-400 p-1 bg-slate-800 rounded border border-slate-700 transition"><Trash2 /></button>
                       
                       <div className="flex justify-between items-center mb-2">
                         <div className="flex items-center space-x-2.5">
@@ -508,7 +692,7 @@
                         </div>
                         <div className="flex items-center space-x-2">
                           <span className="font-bold text-slate-200">-R {((exp.amount / (EXCHANGE_RATES[exp.currency] || 1)) * (EXCHANGE_RATES[baseCurrency] || 1)).toFixed(2)}</span>
-                          <button onClick={() => setExpenses(prev => prev.filter(e => e.id !== exp.id))} className="text-slate-600 hover:text-rose-400"><X /></button>
+                          <button onClick={() => handleDeleteExpense(exp.id)} className="text-slate-600 hover:text-rose-400"><X /></button>
                         </div>
                       </div>
                     ))}
