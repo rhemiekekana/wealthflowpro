@@ -5,10 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>WealthFlow Pro - Payday Cycle Tracker</title>
   
-  <!-- Tailwind CSS Engine for Dashboard Aesthetics -->
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   
-  <!-- React, ReactDOM & Babel In-Browser Compilers (Fixes the White Screen) -->
   <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -17,14 +15,12 @@
 
   <div id="root"></div>
 
-  <!-- Lucide Icon Library Configuration Layer -->
   <script src="https://unpkg.com/lucide@latest"></script>
 
-  <!-- Notice the type="text/babel" - this tells the browser to compile the React code safely -->
   <script type="text/babel">
     // Mocking Lucide icons to operate natively inside a standalone browser frame
     const { 
-      Wallet, Cloud, RefreshCw, CalendarDays, Download, Upload, Calendar, AlertTriangle, Layers, TrendingDown, X, Trash2
+      Wallet, Cloud, RefreshCw, CalendarDays, Download, Upload, Calendar, AlertTriangle, Layers, TrendingDown, X, Trash2, Copy, Check
     } = {
       Wallet: () => <span role="img" aria-label="wallet">💼</span>,
       Cloud: () => <span role="img" aria-label="cloud">☁️</span>,
@@ -37,10 +33,12 @@
       Layers: () => <span role="img" aria-label="layers">📊</span>,
       TrendingDown: () => <span role="img" aria-label="trending-down">📉</span>,
       X: () => <span role="img" aria-label="close">❌</span>,
-      Trash2: () => <span role="img" aria-label="trash">🗑️</span>
+      Trash2: () => <span role="img" aria-label="trash">🗑️</span>,
+      Copy: () => <span role="img" aria-label="copy">📋</span>,
+      Check: () => <span role="img" aria-label="check">✅</span>
     };
 
-    // YOUR CUSTOM CATEGORIES INDEX
+    // CUSTOM CATEGORIES INDEX
     const INITIAL_CATEGORIES = [
       { id: '1', name: 'Housing', budgeted: 4347, color: 'bg-blue-500', icon: '🏠' },
       { id: '2', name: 'Groceries', budgeted: 2000, color: 'bg-emerald-500', icon: '🛒' },
@@ -56,14 +54,12 @@
       { id: '12', name: 'Phone & Internet', budgeted: 1700, color: 'bg-pink-500', icon: '🌐' },
     ];
 
-    // YOUR CLEAN TRANSACTION LEDGER
     const INITIAL_EXPENSES = [];
-
     const EXCHANGE_RATES = { ZAR: 1.0, USD: 0.054, EUR: 0.050, GBP: 0.043 };
 
     function generateSyncKey() {
       const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-      let key = 'cycle-';
+      let key = 'flow-';
       for (let i = 0; i < 8; i++) key += chars.charAt(Math.floor(Math.random() * chars.length));
       return key;
     }
@@ -97,6 +93,7 @@
       const [filterCategory, setFilterCategory] = React.useState('all');
       const [baseCurrency, setBaseCurrency] = React.useState('ZAR');
       const [syncKey, setSyncKey] = React.useState(() => localStorage.getItem('wf_p_key') || generateSyncKey());
+      
       const [showSyncSettings, setShowSyncSettings] = React.useState(false);
       const [inputSyncKey, setInputSyncKey] = React.useState('');
       const [copied, setCopied] = React.useState(false);
@@ -176,6 +173,24 @@
         document.body.appendChild(link); link.click(); document.body.removeChild(link);
       };
 
+      const copyToClipboard = () => {
+        navigator.clipboard.writeText(syncKey);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      };
+
+      const handleConnectKey = (e) => {
+        e.preventDefault();
+        if (inputSyncKey.trim().startsWith('flow-')) {
+          setSyncKey(inputSyncKey.trim());
+          alert('Sync key successfully updated! In a fully hosted architecture, data would now stream from Firestore.');
+          setShowSyncSettings(false);
+          setInputSyncKey('');
+        } else {
+          alert('Invalid key format. Ensure it follows the layout: flow-xxxxxxxx');
+        }
+      };
+
       const handleUpdateBudget = (catId, newBudget) => {
         setCategories(prev => prev.map(c => c.id === catId ? { ...c, budgeted: parseFloat(newBudget) || 0 } : c));
       };
@@ -211,10 +226,21 @@
                 </div>
                 <div>
                   <span className="font-bold text-lg bg-gradient-to-r from-indigo-400 to-emerald-400 bg-clip-text text-transparent">WealthFlow Pro</span>
-                  <span className="block text-[10px] text-slate-400 font-mono">Personal Finance Manager</span>
+                  <span className="block text-[10px] text-slate-400 font-mono">Personal Wealth Tracker</span>
                 </div>
               </div>
-              <div className="flex items-center space-x-2.5">
+              
+              {/* RESTORED CONTROL PANEL LAYOUT */}
+              <div className="flex items-center space-x-3">
+                <button 
+                  onClick={() => setShowSyncSettings(!showSyncSettings)} 
+                  className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-xs px-2.5 py-2 rounded-lg border border-slate-700 transition"
+                  title="Manage Cloud Sync Settings"
+                >
+                  <Cloud />
+                  <span className="hidden sm:inline text-slate-400">KEY:</span>
+                  <span className="text-indigo-400 font-bold">{syncKey}</span>
+                </button>
                 <button onClick={() => { setShowAddCategory(true); setShowAddExpense(false); }} className="bg-slate-800 hover:bg-slate-700 text-xs px-3 py-2 rounded-lg border border-slate-700 transition">
                   + Category
                 </button>
@@ -226,9 +252,48 @@
           </header>
 
           <main className="max-w-7xl mx-auto px-4 py-8 space-y-8">
+            
+            {/* RESTORED SYNC DRAWER INTERFACE */}
+            {showSyncSettings && (
+              <div className="bg-slate-800 border border-indigo-500/30 p-5 rounded-2xl space-y-4 animate-fadeIn">
+                <div className="flex justify-between items-center border-b border-slate-700/60 pb-2">
+                  <h4 className="text-sm font-bold text-slate-200 flex items-center gap-2"><Cloud /> Cloud Sync Integration</h4>
+                  <button onClick={() => setShowSyncSettings(false)} className="text-slate-400 hover:text-white"><X /></button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-750 space-y-2">
+                    <span className="text-xs text-slate-400 block font-semibold">Your Device Token (Unique Sync Key)</span>
+                    <p className="text-[11px] text-slate-500">Provide this signature on alternative devices to sync records instantly.</p>
+                    <div className="flex items-center space-x-2 bg-slate-950 p-2 rounded-lg border border-slate-800">
+                      <code className="text-indigo-400 font-bold text-sm flex-1 font-mono">{syncKey}</code>
+                      <button onClick={copyToClipboard} className="p-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 rounded text-xs transition">
+                        {copied ? <Check /> : <Copy />}
+                      </button>
+                    </div>
+                  </div>
+                  <form onSubmit={handleConnectKey} className="bg-slate-900/60 p-4 rounded-xl border border-slate-750 space-y-2 flex flex-col justify-between">
+                    <div>
+                      <span className="text-xs text-slate-400 block font-semibold">Access Existing Sync Key</span>
+                      <p className="text-[11px] text-slate-500">Inject an active session key signature below to switch workspaces.</p>
+                    </div>
+                    <div className="flex gap-2 mt-2">
+                      <input 
+                        type="text" 
+                        placeholder="flow-xxxxxxxx" 
+                        value={inputSyncKey} 
+                        onChange={e => setInputSyncKey(e.target.value)} 
+                        className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 font-mono flex-1 focus:outline-none"
+                      />
+                      <button type="submit" className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-1.5 rounded-lg transition">
+                        Connect Key
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
             <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              
-              {/* Left Column: Core Input parameters */}
               <div className="bg-slate-800 p-5 rounded-2xl border border-slate-700/50 space-y-4">
                 <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
                   <CalendarDays /> Cycle Tuning Variables
@@ -252,7 +317,6 @@
                 </div>
               </div>
 
-              {/* Middle/Right Column: Live Core Metrics comparing spend to limits */}
               <div className="lg:col-span-2 bg-slate-800 p-6 rounded-2xl border border-slate-700/50 flex flex-col justify-between">
                 <div className="flex justify-between items-center border-b border-slate-700/40 pb-4">
                   <div>
@@ -262,14 +326,12 @@
                   <button onClick={triggerCSVExport} className="p-2 bg-slate-900 hover:bg-slate-700 rounded-xl border border-slate-700 text-slate-300 transition" title="Export CSV Ledger"><Download /></button>
                 </div>
                 
-                {/* Responsive Core Cards displaying planned limit vs actual cash */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 my-4">
                   <div className="bg-slate-900/40 p-3 rounded-xl border border-slate-750">
                     <span className="text-[10px] text-slate-400 uppercase tracking-wider font-bold block">1. True Inflow</span>
                     <span className="text-base font-bold text-slate-200">R {monthlyIncome.toLocaleString()}</span>
                   </div>
                   
-                  {/* Dynamic Planned Expenses aggregate indicator (Feature request fulfilled) */}
                   <div className="bg-slate-900/40 p-3 rounded-xl border border-slate-750">
                     <span className="text-[10px] text-indigo-400 uppercase tracking-wider font-bold block">2. Total Budgeted</span>
                     <span className="text-base font-bold text-indigo-300">R {analytics.totalBudgetedAllocations.toLocaleString()}</span>
@@ -353,8 +415,6 @@
             )}
 
             <section className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              
-              {/* Category Dashboard view containing inline adjustments */}
               <div className="lg:col-span-2 bg-slate-800 p-6 rounded-2xl border border-slate-700/60 space-y-6">
                 <h3 className="text-base font-bold text-slate-200 flex items-center gap-2"><Layers /> Core Allocation Targets</h3>
                 <div className="space-y-4">
@@ -368,7 +428,6 @@
                           <div>
                             <h5 className="font-semibold text-sm text-slate-200">{cat.name}</h5>
                             
-                            {/* Inline adjustment editor toggle (Feature request fulfilled) */}
                             {editingId === cat.id ? (
                               <div className="flex items-center space-x-1.5 mt-1">
                                 <input 
@@ -385,7 +444,6 @@
                                     setEditingId(null);
                                   }}
                                   className="bg-emerald-600 hover:bg-emerald-500 text-[10px] px-1.5 py-0.5 rounded font-bold"
-                                  title="Confirm budget adjustment"
                                 >
                                   ✓
                                 </button>
@@ -393,7 +451,6 @@
                                   type="button"
                                   onClick={() => setEditingId(null)}
                                   className="bg-slate-800 hover:bg-slate-700 text-[10px] px-1.5 py-0.5 rounded text-slate-400 font-bold"
-                                  title="Discard adjustments"
                                 >
                                   ✕
                                 </button>
@@ -407,7 +464,6 @@
                                     setEditBudgetVal(cat.budgeted);
                                   }}
                                   className="text-[10px] text-indigo-400 hover:text-indigo-300 font-bold px-1 rounded hover:bg-slate-800/80 transition"
-                                  title="Adjust budget allocation"
                                 >
                                   Adjust ✏️
                                 </button>
@@ -432,7 +488,6 @@
                 </div>
               </div>
 
-              {/* Transaction Stream Registry */}
               <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700/60 flex flex-col justify-between">
                 <div>
                   <div className="flex justify-between items-center mb-4">
@@ -463,8 +518,7 @@
                     )}
                   </div>
                 </div>
-                <span className="text-[10px] text-slate-500 text-center block pt-4 border-t border-slate-750">Wealthflow Pro V1.0.0<br />
-                    Copyright © 2026 Rhemie Kekana. All rights reserved.</span>
+                <span className="text-[10px] text-slate-500 text-center block pt-4 border-t border-slate-750">Wealthflow Pro v1.0.0<br />Copyright © 2026 Rhemie Kekana. All rights reserved.</span>
               </div>
             </section>
           </main>
