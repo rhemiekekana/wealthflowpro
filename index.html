@@ -219,7 +219,7 @@
       return (
         <div className="min-h-screen">
           <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-40">
-            <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+            <div className="max-w-7xl mx-auto px-4 h-40 sm:h-20 flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:py-0">
               <div className="flex items-center space-x-3">
                 <div className="bg-gradient-to-br from-indigo-600 to-purple-600 p-2 rounded-xl text-white shadow-md">
                   <Wallet />
@@ -231,22 +231,24 @@
               </div>
               
               {/* RESTORED CONTROL PANEL LAYOUT */}
-              <div className="flex items-center space-x-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
                 <button 
                   onClick={() => setShowSyncSettings(!showSyncSettings)} 
-                  className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-xs px-2.5 py-2 rounded-lg border border-slate-700 transition"
+                  className="flex items-center justify-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-xs px-2.5 py-2 rounded-lg border border-slate-700 transition w-full sm:w-auto"
                   title="Manage Cloud Sync Settings"
                 >
                   <Cloud />
                   <span className="hidden sm:inline text-slate-400">KEY:</span>
                   <span className="text-indigo-400 font-bold">{syncKey}</span>
                 </button>
-                <button onClick={() => { setShowAddCategory(true); setShowAddExpense(false); }} className="bg-slate-800 hover:bg-slate-700 text-xs px-3 py-2 rounded-lg border border-slate-700 transition">
-                  + Category
-                </button>
-                <button onClick={() => { setShowAddExpense(true); setShowAddCategory(false); }} className="bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold px-4 py-2 rounded-lg transition shadow-sm">
-                  Log Outflow
-                </button>
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={() => { setShowAddCategory(true); setShowAddExpense(false); }} className="w-full bg-slate-800 hover:bg-slate-700 text-xs px-3 py-2 rounded-lg border border-slate-700 transition">
+                    + Category
+                  </button>
+                  <button onClick={() => { setShowAddExpense(true); setShowAddCategory(false); }} className="w-full bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold px-4 py-2 rounded-lg transition shadow-sm">
+                    Log Outflow
+                  </button>
+                </div>
               </div>
             </div>
           </header>
@@ -326,7 +328,7 @@
                   <button onClick={triggerCSVExport} className="p-2 bg-slate-900 hover:bg-slate-700 rounded-xl border border-slate-700 text-slate-300 transition" title="Export CSV Ledger"><Download /></button>
                 </div>
                 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 my-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 my-4">
                   <div className="bg-slate-900/40 p-3 rounded-xl border border-slate-750">
                     <span className="text-[10px] text-slate-400 uppercase tracking-wider font-bold block">1. True Inflow</span>
                     <span className="text-base font-bold text-slate-200">R {monthlyIncome.toLocaleString()}</span>
